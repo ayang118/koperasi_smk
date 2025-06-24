@@ -1,5 +1,5 @@
 <?php
-include('../../config/db.php');  // Koneksi database
+include('../../config/db.php');
 ?>
 
 <!DOCTYPE html>
@@ -10,6 +10,7 @@ include('../../config/db.php');  // Koneksi database
   <title>Admin Dashboard - Koperasi Sekolah</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <style>
@@ -76,27 +77,19 @@ include('../../config/db.php');  // Koneksi database
       color: #007bff;
       margin-bottom: 1rem;
     }
+    .form-select, .form-control {
+      border-radius: 10px;
+    }
     .table thead th {
       background-color: #007bff;
       color: white;
     }
-    .form-control {
-      border-radius: 10px;
+    .table tfoot th {
+      background-color: #e9ecef;
+      font-weight: bold;
     }
     textarea.form-control {
       resize: none;
-    }
-    @media print {
-      body *:not(#laporan):not(#laporan *) {
-        display: none !important;
-      }
-      #laporan {
-        display: block;
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-      }
     }
     @media (max-width: 767px) {
       .icon-box {
@@ -128,11 +121,8 @@ include('../../config/db.php');  // Koneksi database
 <div class="container mt-4">
   <div class="dashboard-header">
     <h2 class="mb-0">Selamat Datang di Dashboard Admin</h2>
-    <p>Kelola produk dan pantau penjualan koperasi sekolah Anda dengan mudah dan profesional.</p>
+    <p>Kelola produk dan pantau penjualan koperasi sekolah dengan mudah dan profesional.</p>
   </div>
-</div>
-
-<div class="container py-4">
 
   <div class="row g-4 mb-4">
     <div class="col-12 col-sm-6 col-lg-4">
@@ -151,13 +141,14 @@ include('../../config/db.php');  // Koneksi database
     </div>
     <div class="col-12 col-sm-6 col-lg-4">
       <div class="icon-box">
-        <i class="fas fa-chart-line"></i>
+        <i class="fas fa-file-invoice"></i>
         <h5>Laporan Penjualan</h5>
-        <a href="#laporan" class="btn btn-sm btn-info mt-2"><i class="fas fa-file-invoice"></i> Lihat Laporan</a>
+        <a href="#laporan" class="btn btn-sm btn-info mt-2"><i class="fas fa-file-alt"></i> Lihat Laporan</a>
       </div>
     </div>
   </div>
 
+  <!-- Tambah Produk -->
   <div class="card p-4 mb-5" id="form-produk">
     <h5 class="section-title"><i class="fas fa-plus-circle"></i> Tambah Produk</h5>
     <form action="tambah_products.php" method="POST" enctype="multipart/form-data">
@@ -184,13 +175,27 @@ include('../../config/db.php');  // Koneksi database
     </form>
   </div>
 
-  <div class="card p-4" id="laporan">
+  <!-- Grafik Produk Terlaris -->
+  <div class="card p-4 mb-5">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="section-title mb-0"><i class="fas fa-chart-bar"></i> Grafik Produk Terlaris</h5>
+      <select id="filterHari" class="form-select w-auto">
+        <option value="7">7 Hari</option>
+        <option value="30" selected>30 Hari</option>
+        <option value="90">90 Hari</option>
+      </select>
+    </div>
+    <canvas id="chartTerlaris" height="100"></canvas>
+  </div>
+
+  <!-- Laporan Penjualan -->
+  <div class="card p-4 mb-5" id="laporan">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h5 class="section-title mb-0"><i class="fas fa-file-invoice"></i> Laporan Penjualan</h5>
       <button class="btn btn-danger btn-sm" onclick="cetakPDF()"><i class="fas fa-file-pdf"></i> Cetak PDF</button>
     </div>
     <div class="table-responsive">
-      <table class="table table-bordered table-striped align-middle text-center">
+      <table class="table table-bordered table-hover align-middle text-center">
         <thead>
           <tr>
             <th>Tanggal</th>
@@ -203,6 +208,7 @@ include('../../config/db.php');  // Koneksi database
         </thead>
         <tbody>
           <?php
+          $totalSeluruh = 0;
           $query = "
             SELECT 
               o.order_date, 
@@ -220,6 +226,7 @@ include('../../config/db.php');  // Koneksi database
             echo "<tr><td colspan='6'>Belum ada data penjualan</td></tr>";
           }
           while ($row = $result->fetch_assoc()):
+            $totalSeluruh += $row['total'];
           ?>
           <tr>
             <td><?php echo htmlspecialchars(date("d-m-Y", strtotime($row['order_date']))); ?></td>
@@ -231,13 +238,74 @@ include('../../config/db.php');  // Koneksi database
           </tr>
           <?php endwhile; ?>
         </tbody>
+        <tfoot>
+          <tr>
+            <th colspan="5">Total Penjualan</th>
+            <th>Rp <?php echo number_format($totalSeluruh, 2, ',', '.'); ?></th>
+          </tr>
+        </tfoot>
       </table>
     </div>
   </div>
-
 </div>
 
 <script>
+let chartTerlaris;
+
+function loadChart(days = 30) {
+  fetch(`data_chart.php?days=${days}`)
+    .then(response => response.json())
+    .then(data => {
+      const labels = data.map(item => item.product_name);
+      const values = data.map(item => item.jumlah_terjual);
+      const colors = labels.map((_, i) => `hsl(${(i * 360) / labels.length}, 70%, 60%)`);
+
+      if (chartTerlaris) {
+        chartTerlaris.data.labels = labels;
+        chartTerlaris.data.datasets[0].data = values;
+        chartTerlaris.data.datasets[0].backgroundColor = colors;
+        chartTerlaris.update();
+      } else {
+        const ctx = document.getElementById('chartTerlaris').getContext('2d');
+        chartTerlaris = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: labels,
+            datasets: [{
+              label: 'Jumlah Terjual',
+              data: values,
+              backgroundColor: colors,
+              borderColor: 'rgba(0, 123, 255, 1)',
+              borderWidth: 1,
+              borderRadius: 10
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: { display: false }
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: { precision: 0 }
+              }
+            }
+          }
+        });
+      }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  loadChart(30);
+
+  document.getElementById('filterHari').addEventListener('change', function () {
+    const selectedDays = this.value;
+    loadChart(selectedDays);
+  });
+});
+
 function cetakPDF() {
   const laporan = document.getElementById("laporan");
   html2canvas(laporan).then(canvas => {
@@ -254,3 +322,4 @@ function cetakPDF() {
 
 </body>
 </html>
+
